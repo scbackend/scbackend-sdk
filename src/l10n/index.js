@@ -9,6 +9,7 @@ export default {
         'scbackendsdk.send': '发送消息 [msg]',
         'scbackendsdk.whenmessage': '当收到消息',
         'scbackendsdk.getmsg': '收到的消息',
+        'scbackendsdk.ping': '测量延迟(毫秒)',
     },
     en: {
         'scbackendsdk.connect': 'Connect to [remaddr] server [instname] instance',
@@ -18,5 +19,6 @@ export default {
         'scbackendsdk.send': 'Send message [msg]',
         'scbackendsdk.whenmessage': 'When message received',
         'scbackendsdk.getmsg': 'Received message',
+        'scbackendsdk.ping': 'Measure latency (ms)',
     }
 }

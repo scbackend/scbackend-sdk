@@ -15,6 +15,7 @@ import l10n from './l10n/index.js';
     constructor() {
       this.ws = null;
       this.isopened = false;
+      this.delay = -1;
     }
 
     getInfo() {
@@ -63,6 +64,11 @@ import l10n from './l10n/index.js';
             text: translate('scbackendsdk.isconnected'),
           },
           {
+            blockType: Scratch.BlockType.REPORTER,
+            opcode: 'ping',
+            text: translate('scbackendsdk.ping'),
+          },
+          {
             blockType: Scratch.BlockType.COMMAND,
             opcode: 'send',
             text: translate('scbackendsdk.send'),
@@ -89,32 +95,70 @@ import l10n from './l10n/index.js';
     }
 
     _doconnect(remaddr, dst, util, resolve, reject) {
-      this.ws = new WebSocket(remaddr);
-      this.ws.onopen = () => {
-        this.ws.send(JSON.stringify({ type: 'handshake', dst: dst.toString() }));
-      }
-      this.ws.onmessage = (event) => {
-        const msg = event.data;
-        const data = JSON.parse(msg);
-        if (data.type === 'handshake' && data.status === 'ok') {
-          this.isopened = true;
-          this.sessionid = data.sessionId;
-          if (resolve) resolve();
-        } else if (data.type === 'message') {
-          util.startHats('scbackendsdk_whenmessage').forEach(t => {
-            t.initParams();
-            t.pushParam('data', data.message);
-          })
-        }
-      }
-      this.ws.onclose = (event) => {
-        this.ws = null;
-        this.isopened = false;
-        if(reject) reject(event);
-      }
-      this.ws.onerror = (error) => {
-        if(reject) reject(error);
-      }
+      let attempts = 0;
+      const maxAttempts = 5;
+      const connectWS = () => {
+        this.ws = new WebSocket(remaddr);
+        this.ws.onopen = () => {
+          this.ws.send(JSON.stringify({ type: 'handshake', dst: dst.toString() }));
+        };
+        this.ws.onmessage = (event) => {
+          const msg = event.data;
+          const data = JSON.parse(msg);
+          switch (data.type) {
+          case 'handshake':
+            if (data.status === 'ok') {
+              this.isopened = true;
+              this.sessionid = data.sessionId;
+              if (resolve) resolve();
+            } else {
+              this.ws.close();
+              this.ws = null;
+              this.isopened = false;
+              attempts++;
+              if (attempts < maxAttempts) {
+                setTimeout(connectWS, 1000);
+              } else {
+                util.startHats('scbackendsdk_whenerror');
+                if (reject) reject(new Error('Handshake failed'));
+              }
+            }
+            break;
+          case 'message':
+            util.startHats('scbackendsdk_whenmessage').forEach(t => {
+              t.initParams();
+              t.pushParam('data', data.message);
+            });
+            break;
+          case 'pong':
+            this.delay = Date.now() - this.dtimer;
+            break;
+          }
+        };
+        this.ws.onclose = (event) => {
+          let isopened = this.isopened;
+          this.ws = null;
+          this.isopened = false;
+          if (isopened) return;
+          attempts++;
+          if (attempts < maxAttempts) {
+            setTimeout(connectWS, 1000);
+          } else {
+            util.startHats('scbackendsdk_whenerror');
+            if (reject) reject(event);
+          }
+        };
+        this.ws.onerror = (error) => {
+          attempts++;
+          if (attempts < maxAttempts) {
+          setTimeout(connectWS, 1000);
+          } else {
+          util.startHats('scbackendsdk_whenerror');
+          if (reject) reject(error);
+          }
+        };
+      };
+      connectWS();
     }
 
     connect(args, util) {
@@ -142,6 +186,14 @@ import l10n from './l10n/index.js';
 
     isconnected() {
       return this.isopened;
+    }
+
+    ping() {
+      if (this.ws && this.isopened) {
+        this.dtimer = Date.now();
+        this.ws.send(JSON.stringify({ type: 'ping' }));
+      }
+      return this.delay;
     }
 
     send(args) {
